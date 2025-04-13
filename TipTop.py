@@ -8,6 +8,7 @@ app = None
 ui = None
 handlers = []
 
+# Path to your hardcoded F3D file
 HARDCODED_PART_PATH = r"/Users/nicolema/Library/Application Support/Autodesk/Autodesk Fusion 360/API/AddIns/TipTop/models/Blade.f3d"
 
 class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
@@ -92,10 +93,17 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
             selectedOcc = selInput.selection(0).entity
             transform = selectedOcc.transform
             
+            # First, switch to Design workspace to do the part replacement
+            ui.messageBox('Switching to Design workspace to perform optimization...')
+            designWorkspace = ui.workspaces.itemById('FusionSolidEnvironment')
+            if designWorkspace:
+                designWorkspace.activate()
+            
+            # Get the design
             product = app.activeProduct
             design = adsk.fusion.Design.cast(product)
             if not design:
-                ui.messageBox('The active product is not a design')
+                ui.messageBox('Could not access design document. Please make sure you have an active design and try again.')
                 return
             
             success = runSimulatedOptimization()
@@ -138,11 +146,46 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
                 
                 ui.messageBox('Topological optimization complete!\nPart successfully optimized and replaced.')
                 
+                # Switch back to Simulation workspace
+                simWorkspace = ui.workspaces.itemById('SimulationEnvironment')
+                if simWorkspace:
+                    simWorkspace.activate()
+                
             except Exception as e:
+                if 'finalProgress' in locals():
+                    finalProgress.hide()
                 ui.messageBox(f'Error during replacement: {str(e)}\n{traceback.format_exc()}')
                 
         except Exception as e:
             ui.messageBox(f'Error in CommandExecuteHandler: {str(e)}\n{traceback.format_exc()}')
+
+def findSolvePanel(simWorkspace):
+    # First try with specific IDs
+    panels_to_try = ['SimSolvePanel', 'SolvePanel', 'SimulationSolvePanel']
+    for panel_id in panels_to_try:
+        panel = simWorkspace.toolbarPanels.itemById(panel_id)
+        if panel:
+            return panel
+            
+    # Then try to find one with 'solve' in the name
+    for i in range(simWorkspace.toolbarPanels.count):
+        panel = simWorkspace.toolbarPanels.item(i)
+        if 'solve' in panel.id.lower():
+            return panel
+
+    # If all else fails, let's list all available panels to help debug
+    panel_names = []
+    for i in range(simWorkspace.toolbarPanels.count):
+        panel = simWorkspace.toolbarPanels.item(i)
+        panel_names.append(f"{panel.id} - {panel.name}")
+    
+    ui.messageBox(f"Could not find 'Solve' panel. Available panels:\n" + "\n".join(panel_names))
+    
+    # Use the first panel as fallback if any exist
+    if simWorkspace.toolbarPanels.count > 0:
+        return simWorkspace.toolbarPanels.item(0)
+    
+    return None
 
 def addButtonToPanel():
     try:
@@ -159,20 +202,29 @@ def addButtonToPanel():
         cmdDef.commandCreated.add(cmdCreatedHandler)
         handlers.append(cmdCreatedHandler)
         
-        designWS = ui.workspaces.itemById('FusionSolidEnvironment')
-        if not designWS:
-            ui.messageBox('FusionSolidEnvironment workspace not found')
-            return None
+        # Get the SIMULATION workspace
+        simWorkspace = ui.workspaces.itemById('SimulationEnvironment')
+        if not simWorkspace:
+            ui.messageBox('Simulation workspace not found. Adding to Design workspace instead.')
+            simWorkspace = ui.workspaces.itemById('FusionSolidEnvironment')
+            if not simWorkspace:
+                ui.messageBox('Could not find Design workspace either. Cannot add button.')
+                return None
+        
+        # Find the appropriate panel
+        solvePanel = findSolvePanel(simWorkspace)
             
-        modifyPanel = designWS.toolbarPanels.itemById('SolidModifyPanel')
-        if not modifyPanel:
-            ui.messageBox('SolidModifyPanel not found')
+        if not solvePanel:
+            ui.messageBox('Could not find a suitable panel in the workspace')
             return None
         
-        buttonControl = modifyPanel.controls.itemById('replacerCmdId')
+        buttonControl = solvePanel.controls.itemById('replacerCmdId')
         if not buttonControl:
-            buttonControl = modifyPanel.controls.addCommand(cmdDef)
+            buttonControl = solvePanel.controls.addCommand(cmdDef)
             buttonControl.isVisible = True
+            
+            # Log where we added the button
+            ui.messageBox(f'Button added to panel: {solvePanel.id} - {solvePanel.name}')
         
         return cmdDef
     except:
@@ -188,7 +240,7 @@ def run(context):
         cmdDef = addButtonToPanel()
         
         if cmdDef:
-            ui.messageBox('Topological Optimization Add-in loaded successfully.\nLook for "Optimize Part" button in Modify panel.')
+            ui.messageBox('Topological Optimization Add-in loaded successfully.')
         
     except:
         if ui:
@@ -200,12 +252,16 @@ def stop(context):
         if cmdDef:
             cmdDef.deleteMe()
             
-        panel = ui.allToolbarPanels.itemById('SolidModifyPanel')
-        if panel:
-            btn = panel.controls.itemById('replacerCmdId')
-            if btn:
-                btn.deleteMe()
-                
+        # Clean up from both Simulation and Design workspaces
+        for workspace_id in ['SimulationEnvironment', 'FusionSolidEnvironment']:
+            workspace = ui.workspaces.itemById(workspace_id)
+            if workspace:
+                for i in range(workspace.toolbarPanels.count):
+                    panel = workspace.toolbarPanels.item(i)
+                    btn = panel.controls.itemById('replacerCmdId')
+                    if btn:
+                        btn.deleteMe()
+        
         ui.messageBox('Topological Optimization Add-in unloaded.')
         
     except:
