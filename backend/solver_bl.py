@@ -40,8 +40,8 @@ def main():
 
   criterion = Compliance() + VolumeConstraint(max_volume_fraction=0.12, threshold_fct='relu')
 
-  solution = simp_solve(problem, criterion)
+  # solution = simp_solve(problem, criterion)
 
-  viz([problem, solution]) 
+  viz([problem]) 
 
 main()

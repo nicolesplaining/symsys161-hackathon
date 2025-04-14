@@ -8,7 +8,6 @@ app = None
 ui = None
 handlers = []
 
-# Path to your hardcoded F3D file
 HARDCODED_PART_PATH = r"/Users/nicolema/Library/Application Support/Autodesk/Autodesk Fusion 360/API/AddIns/TipTop/models/Blade.f3d"
 
 class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
@@ -93,13 +92,12 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
             selectedOcc = selInput.selection(0).entity
             transform = selectedOcc.transform
             
-            # First, switch to Design workspace to do the part replacement
             ui.messageBox('Switching to Design workspace to perform optimization...')
             designWorkspace = ui.workspaces.itemById('FusionSolidEnvironment')
             if designWorkspace:
                 designWorkspace.activate()
             
-            # Get the design
+            # fix this / crashing
             product = app.activeProduct
             design = adsk.fusion.Design.cast(product)
             if not design:
@@ -146,7 +144,6 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
                 
                 ui.messageBox('Topological optimization complete!\nPart successfully optimized and replaced.')
                 
-                # Switch back to Simulation workspace
                 simWorkspace = ui.workspaces.itemById('SimulationEnvironment')
                 if simWorkspace:
                     simWorkspace.activate()
@@ -160,28 +157,23 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
             ui.messageBox(f'Error in CommandExecuteHandler: {str(e)}\n{traceback.format_exc()}')
 
 def findSolvePanel(simWorkspace):
-    # First try with specific IDs
     panels_to_try = ['SimSolvePanel', 'SolvePanel', 'SimulationSolvePanel']
     for panel_id in panels_to_try:
         panel = simWorkspace.toolbarPanels.itemById(panel_id)
         if panel:
             return panel
             
-    # Then try to find one with 'solve' in the name
     for i in range(simWorkspace.toolbarPanels.count):
         panel = simWorkspace.toolbarPanels.item(i)
         if 'solve' in panel.id.lower():
             return panel
 
-    # If all else fails, let's list all available panels to help debug
     panel_names = []
     for i in range(simWorkspace.toolbarPanels.count):
         panel = simWorkspace.toolbarPanels.item(i)
         panel_names.append(f"{panel.id} - {panel.name}")
     
     ui.messageBox(f"Could not find 'Solve' panel. Available panels:\n" + "\n".join(panel_names))
-    
-    # Use the first panel as fallback if any exist
     if simWorkspace.toolbarPanels.count > 0:
         return simWorkspace.toolbarPanels.item(0)
     
@@ -202,7 +194,6 @@ def addButtonToPanel():
         cmdDef.commandCreated.add(cmdCreatedHandler)
         handlers.append(cmdCreatedHandler)
         
-        # Get the SIMULATION workspace
         simWorkspace = ui.workspaces.itemById('SimulationEnvironment')
         if not simWorkspace:
             ui.messageBox('Simulation workspace not found. Adding to Design workspace instead.')
@@ -211,7 +202,6 @@ def addButtonToPanel():
                 ui.messageBox('Could not find Design workspace either. Cannot add button.')
                 return None
         
-        # Find the appropriate panel
         solvePanel = findSolvePanel(simWorkspace)
             
         if not solvePanel:
@@ -222,8 +212,6 @@ def addButtonToPanel():
         if not buttonControl:
             buttonControl = solvePanel.controls.addCommand(cmdDef)
             buttonControl.isVisible = True
-            
-            # Log where we added the button
             ui.messageBox(f'Button added to panel: {solvePanel.id} - {solvePanel.name}')
         
         return cmdDef
@@ -252,7 +240,6 @@ def stop(context):
         if cmdDef:
             cmdDef.deleteMe()
             
-        # Clean up from both Simulation and Design workspaces
         for workspace_id in ['SimulationEnvironment', 'FusionSolidEnvironment']:
             workspace = ui.workspaces.itemById(workspace_id)
             if workspace:
